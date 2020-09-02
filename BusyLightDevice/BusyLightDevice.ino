@@ -12,7 +12,16 @@
 #include <LittleFS.h>
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
+#include <Adafruit_NeoPixel.h>
 
+
+// Which pin on the Arduino is connected to the NeoPixels?
+#define PIN        5 // On Trinket or Gemma, suggest changing this to 1
+
+// How many NeoPixels are attached to the Arduino?
+#define NUMPIXELS 60 // Popular NeoPixel ring size
+
+Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
 
 // Config Vars
 struct Config {
@@ -117,6 +126,14 @@ boolean reconnect() {
 
 void setup() {
   // put your setup code here, to run once:
+
+  // BusyLight during Setup
+  pixels.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)  
+  pixels.clear(); // Set all pixel colors to 'off'
+  uint32_t magenta = pixels.Color(255, 0, 255);
+  pixels.setBrightness(10);
+  pixels.fill(magenta, 0, NUMPIXELS);
+  pixels.show();   // Send the updated pixel colors to the hardware.
   
   // Serial monitor
   Serial.begin(115200);
@@ -178,6 +195,12 @@ void setup() {
     }
   }
 
+
+  // Setup finished
+  pixels.clear(); // Set all pixel colors to 'off'  
+  pixels.show();   // Send the updated pixel colors to the hardware.
+
+  // MQTT Testmessage
   client.subscribe(Properties.Host); 
   client.publish(Properties.Host, hellomessage);
 

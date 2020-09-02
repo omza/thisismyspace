@@ -21,19 +21,15 @@ services:
     network_mode: host
     restart: always
     volumes:
-      - /opt/mosquitto/config:/mosquitto/config
-      - /opt/mosquitto/data:/mosquitto/data
-      - /opt/mosquitto/log:/mosquitto/log
+      - ${MQTT_CONFIG:-/var/thisismyspace/mqtt/config}:/mosquitto/config
+      - ${MQTT_DATA:-/var/thisismyspace/mqtt/data}:/mosquitto/data
+      - ${MQTT_LOG:-/var/thisismyspace/mqtt/log}:/mosquitto/log
     ports:
       - "1883:1883"
       - "9001:9001"
-    networks:
-      - ${APP_NETWORK:-thisismyspace}
-    depends_on:
-      - db
 
 networks:
 
-  otrrent:
+  thisismyspace:
     #internal: true
     name: ${APP_NETWORK:-thisismyspace}
