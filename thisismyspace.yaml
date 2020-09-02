@@ -1,0 +1,39 @@
+version: '3.7'
+
+services:
+
+  db:
+    image: mariadb
+    container_name: mariadb
+    restart: always
+    ports:
+        - "3306:3306"    
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+    volumes:
+      - ${MYSQL_DB_FILE:-/var/thisismyspace/db}:/var/lib/mysql
+    networks:
+      - ${APP_NETWORK:-thisismyspace}
+
+  mosquitto:
+    image: eclipse-mosquitto
+    container_name: mqtt
+    network_mode: host
+    restart: always
+    volumes:
+      - /opt/mosquitto/config:/mosquitto/config
+      - /opt/mosquitto/data:/mosquitto/data
+      - /opt/mosquitto/log:/mosquitto/log
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    networks:
+      - ${APP_NETWORK:-thisismyspace}
+    depends_on:
+      - db
+
+networks:
+
+  otrrent:
+    #internal: true
+    name: ${APP_NETWORK:-thisismyspace}
