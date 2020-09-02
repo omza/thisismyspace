@@ -1,0 +1,8 @@
+{
+    "host": "",
+    "ssid": "",
+    "pass": "",
+    "broker":"test.mosquitto.org",
+    "port": 1883,
+    "debug": true
+}
