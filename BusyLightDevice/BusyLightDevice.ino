@@ -35,6 +35,32 @@ struct Config {
 
 struct Config Properties;
 
+// Message Buffer and Event objects
+struct ReceiveData {
+  const char *Devices = "LD";
+  boolean Raised;
+  unsigned long ReceivedAt;
+  char Payload[50];  
+};
+
+struct ReceiveData Rx;
+
+struct Lightbulb {
+  const char *Events = "OF";
+  char Event[1];
+  unsigned long From;
+  unsigned long To;
+  uint32_t Colour;
+  int Brightness;   
+};
+
+// Event objects instantiate
+// last come last serve
+struct Lightbulb Light;
+
+
+// routines
+
 bool loadConfig() {
 
   if (!LittleFS.begin()) {
@@ -70,38 +96,12 @@ bool loadConfig() {
   }
 
   //Speichere Pointer to Struct Var
-  int i;
-  const char *charbuffer = doc["host"]; 
-  for(i=0; i<strlen(charbuffer); i++)
-  {
-    Properties.Host[i] =  charbuffer[i];
-  }
-  Properties.Host[i+1] = 0;
-  
-  charbuffer = doc["ssid"]; 
-  for(i=0; i<strlen(charbuffer); i++)
-  {
-    Properties.Ssid[i] =  charbuffer[i];
-  }
-  Properties.Ssid[i+1] = 0;
-
-  charbuffer = doc["pass"]; 
-  for(i=0; i<strlen(charbuffer); i++)
-  {
-    Properties.Pass[i] =  charbuffer[i];
-  }
-  Properties.Pass[i+1] = 0;  
-  
-  charbuffer = doc["broker"]; 
-  for(i=0; i<strlen(charbuffer); i++)
-  {
-    Properties.Broker[i] =  charbuffer[i];
-  }
-  Properties.Broker[i+1] = 0;  
-
+  strcpy(Properties.Host, doc["host"]);
+  strcpy(Properties.Ssid, doc["ssid"]);
+  strcpy(Properties.Pass, doc["pass"]);
+  strcpy(Properties.Broker, doc["broker"]);
   Properties.Port = doc["port"];
   Properties.Debug = doc["debug"];
-
   return true;
 }
 
@@ -109,8 +109,6 @@ WiFiClient espClient;
 PubSubClient client(espClient);
 
 long lastReconnectAttempt = 0;
-char hellomessage[] = "BusyLightAdvancedDevice online";
-
 
 boolean reconnect() {
   if (client.connect(Properties.Host)) {
@@ -118,8 +116,7 @@ boolean reconnect() {
     //client.publish("outTopic","hello world");
     // ... and resubscribe
     //client.subscribe("inTopic");
-    client.subscribe(Properties.Host); 
-    client.publish(Properties.Host, hellomessage);    
+    client.subscribe(Properties.Host);   
   }
   return client.connected();
 }
@@ -141,7 +138,7 @@ void setup() {
 
   // Startup Sequence
   Serial.println("");
-  Serial.println("BusyLightAdvancedDevice Startup Sequence");
+  Serial.println("This Is My Space Device Startup Sequence");
   Serial.println("----------------------------------------");
 
   if (!loadConfig()) {
@@ -155,7 +152,9 @@ void setup() {
       printf("Key string : %s\n", Properties.Pass);     
       printf("Broker string : %s\n", Properties.Broker);
       printf("Port: %i\n", Properties.Port);
-      printf("Debug-Mode: %s\n", "true");      
+      printf("Debug-Mode: %s\n", "true");
+      Serial.print("MAC Address: ");
+      Serial.println(WiFi.macAddress());
       Serial.println("DEBUG  END -----------------------");    
     }    
   }
@@ -172,7 +171,7 @@ void setup() {
   Serial.print("Connected to the WiFi network with IP: ");
   Serial.println(WiFi.localIP());  
 
-  client.setServer("test.mosquitto.org", 1883);
+  client.setServer(Properties.Broker, Properties.Port);
   client.setCallback(callback);
   Serial.print("Connecting to MQTT: ");  
   Serial.print(Properties.Broker);
@@ -189,42 +188,45 @@ void setup() {
     } else {
  
       Serial.print(".");
-      //Serial.print(client.state());
-      delay(1000);
+      Serial.print(client.state());
+      delay(500);
  
     }
   }
 
+  // Subscribe to Client/Topic
+  // Prepare Rx and Tx
+  Rx.Raised = false;
+  client.subscribe(Properties.Host);
 
   // Setup finished
   pixels.clear(); // Set all pixel colors to 'off'  
   pixels.show();   // Send the updated pixel colors to the hardware.
-
-  // MQTT Testmessage
-  client.subscribe(Properties.Host); 
-  client.publish(Properties.Host, hellomessage);
-
     
 }
 
 void callback(char* topic, byte* payload, unsigned int length) {
-  
-  Serial.println("----------------------------------------"); 
-  Serial.print("Message arrived in topic: ");
-  Serial.println(topic);
- 
-  Serial.print("Message: ");
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
+
+  // Test length (minimum 4 char) and possible devices and fill Event 
+  // further parsing takes part in loop top keep the callback as short as possible
+  if (length >= 4) {
+    if (strchr(Rx.Devices,(char)payload[0]) != NULL) {
+      int i;
+      for (i = 0; i < length; i++) {
+        Rx.Payload[i] = (char)payload[i];
+      }
+      Rx.Payload[i] = 0;
+      Rx.Raised = true;
+      Rx.ReceivedAt = millis();
+          
+    }    
   }
- 
-  Serial.println();
-  Serial.println("----------------------------------------");
- 
 }
+
 
 void loop() {
   // put your main code here, to run repeatedly:
+
   if (!client.connected()) {
     long now = millis();
     if (now - lastReconnectAttempt > 5000) {
@@ -236,7 +238,69 @@ void loop() {
     }
   } else {
     // Client connected
+    
+    // Incoming Event handler
+    if (Rx.Raised) {
+      
+      if (Properties.Debug){
+        Serial.println("----------------------------------------"); 
+        Serial.print("Payload: ");
+        Serial.println(Rx.Payload);
+        Serial.print("Timestamp: ");
+        Serial.println(Rx.ReceivedAt);        
+      }
 
-    client.loop();
+      // Parse Object 
+      if (Rx.Payload[0] == 'L') {
+
+        // test to known events
+        if (strchr(Light.Events,Rx.Payload[1]) != NULL) {
+          Light.Event[1] = Rx.Payload[1];
+          Light.From = millis();
+          Light.To = Light.From + 5000;
+          Light.Colour = pixels.Color(0, 255, 0);
+          Light.Brightness = 10;
+          if (Properties.Debug){Serial.println("Lightbulb Event triggered");}
+        }        
+      }
+      Rx.Raised = false;
+    }
+
+    // Lightbulb Device Events
+    if (Light.Event[1] != 'X') {
+
+      if (Light.Event[1] == 'O') {
+        // Lights on
+        unsigned long checktime = millis();
+        if ((Light.From <= checktime) && (Light.To >= checktime)) {
+          //Do Event                   
+          pixels.setBrightness(Light.Brightness);
+          pixels.fill(Light.Colour, 0, NUMPIXELS);
+          pixels.show();   // Send the updated pixel colors to the hardware.          
+        
+        } else {
+          // End of Event
+          Light.Event[1] = 'X';
+          pixels.clear(); // Set all pixel colors to 'off'  
+          pixels.show();   // Send the updated pixel colors to the hardware. 
+        }
+      } else if (Light.Event[1] == 'F') {
+          // Lights Off
+          Light.Event[1] = 'X';          
+          pixels.clear(); // Set all pixel colors to 'off'  
+          pixels.show();   // Send the updated pixel colors to the hardware. 
+          
+      } else { 
+        // Event unknown
+        
+        Light.Event[1] = 'X';
+      }
+    }
+  
+    // Outgoing Event handler
+
+    //next message
+    client.loop();    
+    
   }
 }
