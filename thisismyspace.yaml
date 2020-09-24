@@ -24,6 +24,7 @@ services:
       - ${MQTT_CONFIG:-/var/thisismyspace/mqtt/config}:/mosquitto/config
       - ${MQTT_DATA:-/var/thisismyspace/mqtt/data}:/mosquitto/data
       - ${MQTT_LOG:-/var/thisismyspace/mqtt/log}:/mosquitto/log
+      - ${MQTT_SSL:-/etc/letsencrypt/live/thisismyspace.app-workshop.de}:/etc/letsencrypt/live/thisismyspace.app-workshop.de
     ports:
       - "1883:1883"
       - "8883:8883"
