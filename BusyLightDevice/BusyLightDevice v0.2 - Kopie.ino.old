@@ -1,0 +1,238 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+#include <ESP8266mDNS.h>
+#include "LittleFS.h"
+#include <ArduinoJson.h>
+
+ // globals
+const char *apssid = "thisismyspace";
+const char *appassword = "";
+
+MDNSResponder mdns;
+ESP8266WebServer server(80);
+ 
+
+/*
+ *  Application Modes are
+ *  1 = Setup of WLAN Station Mode 
+ *  2 = Setup of MQTT and tims Server & Account
+ *  3 = Running
+ * 
+ */
+int ApplicationMode = 0;
+
+struct Config {
+  char Host[100];
+  char DeviceUuid[100];
+  char Ssid[100];
+  char Pass[100];
+  char Broker[100];
+  int Port;
+  boolean Debug;
+  };
+
+struct Config Properties;
+
+
+// handlers
+
+void handleNotFound() {
+ 
+  // try to find the file in the flash
+  // if(loadFromFlash(server.uri())) return;
+ 
+  File HtmlFile = LittleFS.open("/notfound.html", "r");
+  if (!HtmlFile) {
+    Serial.println("Failed to open notfound.html");
+    server.send(404, "text/plain", "404 File Not Found");
+  }
+
+  //read content from htmlfile into buf
+  size_t size = HtmlFile.size();
+  std::unique_ptr<char[]> buf(new char[size]);
+  HtmlFile.readBytes(buf.get(), size);
+  HtmlFile.close();
+
+  //parse html request
+  String method = (server.method() == HTTP_GET)?"GET":"POST";
+
+  String arguments ="";
+  for (uint8_t i=0; i<server.args(); i++){
+    arguments += server.argName(i) + ": " + server.arg(i) + "<br>";
+  }  
+
+  //prepare not found page
+  int newsize = size - 8 + strlen(server.uri().c_str()) + strlen(method.c_str()) + strlen(arguments.c_str()) + 1;
+  printf("HTML Neue Groesse %i\n", newsize);
+  char message[newsize+1];
+  snprintf(message, newsize, buf.get(), server.uri().c_str(), method.c_str(), server.args(), arguments.c_str());
+  
+  server.send(404, "text/html", message);
+}
+
+void handleRoot() {
+  // Handler for Main page
+  
+
+  File HtmlFile = LittleFS.open("/wlan.html", "r");
+  if (!HtmlFile) {
+    Serial.println("Failed to open notfound.html");
+    server.send(404, "text/plain", "404 File Not Found");
+  }
+  
+  //read content from htmlfile template into buf
+  size_t size = HtmlFile.size();
+  std::unique_ptr<char[]> buf(new char[size]);
+  HtmlFile.readBytes(buf.get(), size);
+  HtmlFile.close();
+
+  // prepare html template
+  int newsize = size - 4 + strlen(Properties.Ssid) + strlen(Properties.Pass);
+  printf("HTML Neue Groesse %i\n", newsize);
+  char message[newsize+1];
+  snprintf(message, newsize, buf.get(), Properties.Ssid, Properties.Pass);
+
+  // serve it
+  server.send(200, "text/html", message);
+  
+}
+
+
+bool loadConfig() {
+
+  File configFile = LittleFS.open("/properties.json", "r");
+  if (!configFile) {
+    Serial.println("Failed to open config file");
+    return false;
+  }
+
+  size_t size = configFile.size();
+  if (size > 1024) {
+    Serial.println("Config file size is too large");
+    return false;
+  }
+
+  // Allocate a buffer to store contents of the file.
+  std::unique_ptr<char[]> buf(new char[size]);
+
+  // We don't use String here because ArduinoJson library requires the input
+  // buffer to be mutable. If you don't use ArduinoJson, you may as well
+  // use configFile.readString instead.
+  configFile.readBytes(buf.get(), size);
+
+  StaticJsonDocument<200> doc;
+  auto error = deserializeJson(doc, buf.get());
+  if (error) {
+    Serial.println("Failed to parse config file");
+    configFile.close();
+    return false;
+  }
+
+  //Speichere Pointer to Struct Var
+  strcpy(Properties.Host, doc["host"]);
+  strcpy(Properties.DeviceUuid, doc["deviceuuid"]);
+  strcpy(Properties.Ssid, doc["ssid"]);
+  strcpy(Properties.Pass, doc["pass"]);
+  strcpy(Properties.Broker, doc["broker"]);
+  Properties.Port = doc["port"];
+  Properties.Debug = doc["debug"];
+  configFile.close();
+  return true;
+}
+
+ 
+void setup() {
+ 
+  Serial.begin(115200);
+  delay(500);
+
+  // Startup Sequence
+  
+  Serial.println("");
+  Serial.println("This Is My Space Device Startup Sequence");
+  Serial.println("----------------------------------------");
+
+  // Init Little FS Filesystem
+  Serial.println(F("Inizializing FS..."));
+  if (LittleFS.begin()){
+      Serial.println(F("done."));
+
+      if (!loadConfig()) {
+        Serial.println("Failed to load config");
+        
+      } else {
+         // Show Debug Information and Configuration
+        if (Properties.Debug) {
+          Serial.println("DEBUG  ---------------------------");
+          printf("Device Name : %s\n", Properties.Host);
+          printf("Device UUID : %s\n", Properties.DeviceUuid);     
+          printf("SSID string : %s\n", Properties.Ssid);
+          printf("Key string : %s\n", Properties.Pass);     
+          printf("Broker string : %s\n", Properties.Broker);
+          printf("Port: %i\n", Properties.Port);
+          printf("Debug-Mode: %s\n", "true");
+          Serial.println("DEBUG  END -----------------------");    
+        }    
+      }
+      
+  }else{
+      Serial.println(F("fail."));
+  }
+
+
+
+  // Mode Setup
+  if (strlen(Properties.Host) == 0) {
+
+      String DeviceName = "tims_";
+      DeviceName += String(ESP.getChipId());
+    
+      strcpy(Properties.Host, DeviceName.c_str()); 
+      printf("New Device Name : %s\n", Properties.Host);
+      
+  }
+
+  if (strlen(Properties.Ssid) == 0 || strlen(Properties.Pass) == 0)   {
+    // No WLAN SEtup Found
+    ApplicationMode = 1;
+  
+  } else {
+    ApplicationMode = 2;
+    
+  }
+
+  printf("Application Mode: %i\n", ApplicationMode);
+  
+  WiFi.softAP(apssid, appassword);
+  WiFi.hostname(Properties.Host);
+ 
+  Serial.println();
+  Serial.print("Server IP address: ");
+  Serial.println(WiFi.softAPIP());
+  Serial.print("Server MAC address: ");
+  Serial.println(WiFi.softAPmacAddress());
+
+
+  // Start mDNS
+  if (mdns.begin(Properties.Host, WiFi.softAPIP())) {
+    Serial.print("MDNS responder started listening to: ");
+    Serial.println(Properties.Host);      
+  }
+
+
+  // Start Webserver
+  server.serveStatic("/Roboto.css", LittleFS, "/Roboto.css");
+  server.serveStatic("/tims.css", LittleFS, "/tims.css");
+  
+  server.on("/", handleRoot);
+  server.onNotFound(handleNotFound);
+  
+  server.begin();
+ 
+  Serial.println("Server listening");
+}
+ 
+void loop() {
+  server.handleClient();
+}
+ 

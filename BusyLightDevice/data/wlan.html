@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>this is my space - wlan config</title>
+    <!-- <link href='tims.css' rel='stylesheet'> -->
+  </head>
+  <body>
+    <div class="container">  
+      <form id="contact" action="/submit" method="post">
+        <h3>this is my space</h3>
+        <h4>device WiFi configuration</h4>
+        <fieldset>
+          <label for="ssid">ssid*</label>
+          <input id="ssid" name="ssid" placeholder="WiFi SSID" type="text" tabindex="1" value="%SSID%" required autofocus>
+        </fieldset>
+        <fieldset>
+          <label for="key">wlan-key*</label>
+          <input id="key" name="key" placeholder="WiFi Key" type="password" tabindex="2" value="%KEY%" required>
+        </fieldset>
+        <fieldset>
+          <label for="host">device-name*</label>
+          <input id="host" name="host" placeholder="WiFi Host Name" type="text" tabindex="2" value="%HOSTNAME%" required>
+        </fieldset>        
+        <fieldset>
+          <button name="submit" type="submit" id="contact-submit" data-submit="...Sending">Save</button>
+        </fieldset>
+        <p class="copyright">%MESSAGE%</a></p>
+      </form>
+    </div>
+  </body>
+</html>

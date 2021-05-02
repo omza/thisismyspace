@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>this is my space - mqtt config</title>
+    <!-- <link href='tims.css' rel='stylesheet'> -->
+  </head>
+  <body>
+    <div class="container">  
+      <form id="contact" action="/submit" method="post">
+        <h3>this is my space</h3>
+        <h4>Account configuration</h4>
+        <fieldset>
+          <label for="broker">server*</label>
+          <input id="broker" name="broker" placeholder="this is my space server/broker" type="text" tabindex="1" value="%BROKER%" required autofocus>
+        </fieldset>
+        <fieldset>
+          <label for="port">mqtt port*</label>
+          <input id="port" name="port" placeholder="1883" type="number" tabindex="2" value="%PORT%" required autofocus>
+        </fieldset>        
+        <fieldset>
+          <label for="user">user-email*</label>
+          <input id="user" name="user" placeholder="your email" type="email" tabindex="3" value="%USER%" required>
+        </fieldset>
+        <fieldset>
+          <label for="password">user-password*</label>
+          <input id="password" name="password" placeholder="password" type="password" tabindex="4" value="%PASSWORD%" required>
+        </fieldset>        
+        <fieldset>
+          <button name="submit" type="submit" id="contact-submit">Save</button>
+        </fieldset>
+        <p class="copyright">%MESSAGE%</a></p>
+      </form>
+    </div>
+  </body>
+</html>

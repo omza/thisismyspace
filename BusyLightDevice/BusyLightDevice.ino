@@ -1,73 +1,221 @@
-// Example: storing JSON configuration file in flash file system
-//
-// Uses ArduinoJson library by Benoit Blanchon.
-// https://github.com/bblanchon/ArduinoJson
-//
-// Created Aug 10, 2015 by Ivan Grokhotkov.
-//
-// This example code is in the public domain.
-
-#include <ArduinoJson.h>
-#include "FS.h"
-#include <LittleFS.h>
+#ifdef ESP32
+#include <WiFi.h>
+#include <AsyncTCP.h>
+#elif defined(ESP8266)
 #include <ESP8266WiFi.h>
-#include <PubSubClient.h>
-#include <Adafruit_NeoPixel.h>
+#include <ESPAsyncTCP.h>
+#endif
+#include <ESPAsyncWebServer.h>
+#include "LittleFS.h"
+#include <ArduinoJson.h>
 
+ // globals
+const char *apssid = "thisismyspace";
+const char *appassword = "";
 
-// Which pin on the Arduino is connected to the NeoPixels?
-#define PIN        5 // On Trinket or Gemma, suggest changing this to 1
+bool loadConfig();
+bool saveConfig();
+bool changeApplicationMode = false;
 
-// How many NeoPixels are attached to the Arduino?
-#define NUMPIXELS 60 // Popular NeoPixel ring size
+AsyncWebServer server(80);
 
-Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
+/*
+ *  Application Modes are
+ *  1 = Setup of WLAN Station Mode 
+ *  2 = Setup of MQTT and tims Server & Account
+ *  3 = Running
+ * 
+ */
 
-// Config Vars
 struct Config {
+  int ApplicationMode;
   char Host[100];
+  char DeviceUuid[100];
   char Ssid[100];
   char Pass[100];
   char Broker[100];
+  char User[100];
+  char Password[100];
   int Port;
   boolean Debug;
   };
 
 struct Config Properties;
 
-// Message Buffer and Event objects
-struct ReceiveData {
-  const char *Devices = "LD";
-  boolean Raised;
-  unsigned long ReceivedAt;
-  char Payload[50];  
-};
-
-struct ReceiveData Rx;
-
-struct Lightbulb {
-  const char *Events = "OF";
-  char Event[1];
-  unsigned long From;
-  unsigned long To;
-  uint32_t Colour;
-  int Brightness;   
-};
-
-// Event objects instantiate
-// last come last serve
-struct Lightbulb Light;
+String HtmlMessage;
 
 
-// routines
-
-bool loadConfig() {
-
-  if (!LittleFS.begin()) {
-    Serial.println("Failed to mount file system");
+/*
+* Connect your controller to WiFi
+*/
+bool connectToWiFi() {
+  
+  //Connect to WiFi Network
+  Serial.println();
+  Serial.println();
+  Serial.print("Connecting to WiFi");
+  Serial.println("...");
+  WiFi.begin(Properties.Ssid, Properties.Pass);
+  int retries = 0;
+     
+  while ((WiFi.status() != WL_CONNECTED) && (retries < 30)) {
+     retries++;
+     delay(500);
+     Serial.print(".");
+  }
+    
+  if (retries > 29) {
+    Serial.println(F("WiFi connection FAILED"));
     return false;
+    
+  } else if (WiFi.status() == WL_CONNECTED) {
+    Serial.println(F("WiFi connected!"));
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
+    return true;
+    
+  } else {
+    Serial.println(F("WiFi not connected"));
+    return false;
+    
+  }
+}
+
+
+// handlers
+
+String processorNotFound(const String& var)
+{
+  if(var == "URI") {
+    return "uri...";
+    
+  } else if (var == "METHOD") {
+    return "methode post oder get";
+  
+  } else if (var == "ARGUMENTS") {
+    return "arguments/params";
+  }
+  return String();
+}
+
+void handleNotFound(AsyncWebServerRequest *request) {
+  request->send(LittleFS, "/notfound.html", String(), false, processorNotFound);
+}
+
+String processorConfig(const String& var)
+{
+  if(var == "SSID") {
+    return Properties.Ssid;
+  } else if (var == "KEY") {
+    return Properties.Pass;
+  } else if (var == "HOSTNAME") {
+    return Properties.Host;
+  } else if (var == "MESSAGE") {
+    return HtmlMessage;
+  } else if (var == "BROKER") {
+    return Properties.Broker;
+  } else if (var == "PORT") {
+    return String(Properties.Port);
+  } else if (var == "USER") {
+    return Properties.User;
+  } else if (var == "PASSWORD") {
+    return Properties.Password;
+  }
+  return String();
+}
+
+void handleRoot(AsyncWebServerRequest *request) {
+  // setup assistent and config
+  if (Properties.ApplicationMode == 1) {
+    HtmlMessage = "";
+    request->send(LittleFS, "/wlan.html", String(), false, processorConfig);
+    
+  } else if (Properties.ApplicationMode == 2) {
+    HtmlMessage = WiFi.softAPIP().toString();
+    request->send(LittleFS, "/account.html", String(), false, processorConfig);
+    
+  } else {
+    HtmlMessage = WiFi.softAPIP().toString();
+    request->send(LittleFS, "/account.html", String(), false, processorConfig);
+    
   }
   
+}
+
+
+void handleSubmit(AsyncWebServerRequest *request) {
+
+  String message;
+
+  if (Properties.ApplicationMode == 1) {
+    // wlan configuration
+     
+    if (request->hasParam("ssid", true)) {
+      message = request->getParam("ssid", true)->value();
+      strcpy(Properties.Ssid, message.c_str());
+    } 
+
+    if (request->hasParam("key", true)) {
+      message = request->getParam("key", true)->value();
+      strcpy(Properties.Pass, message.c_str());
+    } 
+
+    if (request->hasParam("host", true)) {
+      message = request->getParam("host", true)->value();
+      strcpy(Properties.Host, message.c_str());
+    } 
+
+    // Change to Account Registration/Setup when connection successful
+    //if (connectToWiFi()) {
+    Properties.ApplicationMode = 2;
+    changeApplicationMode = true;
+    //}
+    
+  } else if (Properties.ApplicationMode == 2) {
+
+    
+    // Account Config
+    
+    if (request->hasParam("broker", true)) {
+      message = request->getParam("broker", true)->value();
+      strcpy(Properties.Broker, message.c_str());
+    } 
+
+    if (request->hasParam("port", true)) {
+      message = request->getParam("port", true)->value();
+      Properties.Port = message.toInt();
+    } 
+
+    if (request->hasParam("user", true)) {
+      message = request->getParam("user", true)->value();
+      strcpy(Properties.User, message.c_str());
+    } 
+
+    if (request->hasParam("password", true)) {
+      message = request->getParam("password", true)->value();
+      strcpy(Properties.Password, message.c_str());
+    }  
+    
+  }
+
+  // Save Config 
+  if (!saveConfig()) {
+    Serial.println("Failed to save config");
+  } else {
+    Serial.println("config file was saved successfully");
+
+  }  
+
+  //redirect to index 
+  showConfig();
+  //printConfig();  
+  request->redirect("/");
+}
+
+
+// Functions to handle Config File
+bool loadConfig() {
+
   File configFile = LittleFS.open("/properties.json", "r");
   if (!configFile) {
     Serial.println("Failed to open config file");
@@ -88,219 +236,213 @@ bool loadConfig() {
   // use configFile.readString instead.
   configFile.readBytes(buf.get(), size);
 
-  StaticJsonDocument<200> doc;
+  StaticJsonDocument<256> doc;
   auto error = deserializeJson(doc, buf.get());
   if (error) {
     Serial.println("Failed to parse config file");
+    configFile.close();
     return false;
   }
 
   //Speichere Pointer to Struct Var
+  Properties.Debug = doc["debug"];  
+  Properties.ApplicationMode = doc["applicationmode"];
   strcpy(Properties.Host, doc["host"]);
+  strcpy(Properties.DeviceUuid, doc["deviceuuid"]);
   strcpy(Properties.Ssid, doc["ssid"]);
   strcpy(Properties.Pass, doc["pass"]);
   strcpy(Properties.Broker, doc["broker"]);
-  Properties.Port = doc["port"];
-  Properties.Debug = doc["debug"];
+  Properties.Port = doc["port"];  
+  strcpy(Properties.User, doc["user"]);
+  strcpy(Properties.Password , doc["password"]);
+
+  //Close and return
+  configFile.close();
   return true;
 }
 
-WiFiClient espClient;
-PubSubClient client(espClient);
+bool saveConfig() {
 
-long lastReconnectAttempt = 0;
+  File configFile = LittleFS.open("/properties.json", "w");
+  if (!configFile) {
+    Serial.println("Failed to open config file");
+    return false;
+  }  
 
-boolean reconnect() {
-  if (client.connect(Properties.Host)) {
-    // Once connected, publish an announcement...
-    //client.publish("outTopic","hello world");
-    // ... and resubscribe
-    //client.subscribe("inTopic");
-    client.subscribe(Properties.Host);   
+  // Serialize Config struct
+  StaticJsonDocument<256> doc;  
+ 
+  doc["debug"] = Properties.Debug;
+  doc["applicationmode"] = Properties.ApplicationMode;
+  doc["host"] = Properties.Host;
+  doc["deviceuuid"] = Properties.DeviceUuid;
+  doc["ssid"] = Properties.Ssid;
+  doc["pass"] = Properties.Pass;
+  doc["broker"] = Properties.Broker;
+  doc["port"] = Properties.Port;
+  doc["user"] = Properties.User;
+  doc["password"] = Properties.Password;
+  
+  auto error = serializeJson(doc, configFile);
+  if (error) {
+    Serial.println("Failed to parse to config file");
+    configFile.close();
+    return false;
   }
-  return client.connected();
+ 
+  // close Config File
+  configFile.close();
+
+  return true;
 }
 
+void showConfig() {
+
+   // Show Debug Information and Configuration
+  if (Properties.Debug) {
+    Serial.println("CONFIG  ---------------------------");
+    printf("Application Mode: %i\n", Properties.ApplicationMode);
+    printf("Device Name : %s\n", Properties.Host);
+    printf("Device UUID : %s\n", Properties.DeviceUuid);     
+    printf("SSID string : %s\n", Properties.Ssid);
+    printf("Key string : %s\n", Properties.Pass);     
+    printf("Broker string : %s\n", Properties.Broker);
+    printf("Port: %i\n", Properties.Port);
+    printf("User : %s\n", Properties.User);
+    printf("Password : %s\n", Properties.Password);
+    printf("Debug-Mode: %s\n", "true");
+    Serial.println("CONFIG  END -----------------------");    
+  } 
+}
+
+
+void printConfig() {
+  // print config file to console
+  File configFile = LittleFS.open("/properties.json", "r");
+  if (configFile) {
+   {
+      // read from the file until there's nothing else in it:
+      while (configFile.available())
+      {
+         Serial.write(configFile.read());
+      }                               
+      // close the file:             
+      configFile.close();
+   }
+  }
+}
+
+
 void setup() {
-  // put your setup code here, to run once:
-
-  // BusyLight during Setup
-  pixels.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)  
-  pixels.clear(); // Set all pixel colors to 'off'
-  uint32_t magenta = pixels.Color(255, 0, 255);
-  pixels.setBrightness(10);
-  pixels.fill(magenta, 0, NUMPIXELS);
-  pixels.show();   // Send the updated pixel colors to the hardware.
   
-  // Serial monitor
+   // Startup Sequence
   Serial.begin(115200);
-  delay(1000);
+  delay(500);
 
-  // Startup Sequence
   Serial.println("");
   Serial.println("This Is My Space Device Startup Sequence");
   Serial.println("----------------------------------------");
 
-  if (!loadConfig()) {
-    Serial.println("Failed to load config");
-  } else {
-     // Show Debug Information and Configuration
-    if (Properties.Debug) {
-      Serial.println("DEBUG  ---------------------------");
-      printf("Host string : %s\n", Properties.Host);     
-      printf("SSID string : %s\n", Properties.Ssid);
-      printf("Key string : %s\n", Properties.Pass);     
-      printf("Broker string : %s\n", Properties.Broker);
-      printf("Port: %i\n", Properties.Port);
-      printf("Debug-Mode: %s\n", "true");
-      Serial.print("MAC Address: ");
-      Serial.println(WiFi.macAddress());
-      Serial.println("DEBUG  END -----------------------");    
-    }    
-  }
+  // Init Little FS Filesystem
+  Serial.print(F("Inizializing FS..."));
+  if (LittleFS.begin()){
+      Serial.println(F("done."));
 
-  //WiFi.mode(WIFI_STA);
-  WiFi.begin(Properties.Ssid, Properties.Pass);
-  Serial.print("Connecting to WiFi: ");
-  Serial.println(Properties.Ssid);
-  
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.print("Connected to the WiFi network with IP: ");
-  Serial.println(WiFi.localIP());  
+      //printConfig();
 
-  client.setServer(Properties.Broker, Properties.Port);
-  client.setCallback(callback);
-  Serial.print("Connecting to MQTT: ");  
-  Serial.print(Properties.Broker);
-  Serial.print(":");
-  Serial.println(Properties.Port); 
- 
-  while (!client.connected()) {
-       
-    if (client.connect(Properties.Host)) {
- 
-      Serial.print(".Connected to the MQTT Broker with Client ID: ");
-      Serial.println(Properties.Host);   
-
-    } else {
- 
-      Serial.print(".");
-      Serial.print(client.state());
-      delay(500);
- 
-    }
-  }
-
-  // Subscribe to Client/Topic
-  // Prepare Rx and Tx
-  Rx.Raised = false;
-  client.subscribe(Properties.Host);
-
-  // Setup finished
-  pixels.clear(); // Set all pixel colors to 'off'  
-  pixels.show();   // Send the updated pixel colors to the hardware.
-    
-}
-
-void callback(char* topic, byte* payload, unsigned int length) {
-
-  // Test length (minimum 4 char) and possible devices and fill Event 
-  // further parsing takes part in loop top keep the callback as short as possible
-  if (length >= 4) {
-    if (strchr(Rx.Devices,(char)payload[0]) != NULL) {
-      int i;
-      for (i = 0; i < length; i++) {
-        Rx.Payload[i] = (char)payload[i];
+      if (!loadConfig()) {
+        Serial.println("Failed to load config");
+        
+      } else {
+        showConfig();   
       }
-      Rx.Payload[i] = 0;
-      Rx.Raised = true;
-      Rx.ReceivedAt = millis();
-          
-    }    
-  }
-}
-
-
-void loop() {
-  // put your main code here, to run repeatedly:
-
-  if (!client.connected()) {
-    long now = millis();
-    if (now - lastReconnectAttempt > 5000) {
-      lastReconnectAttempt = now;
-      // Attempt to reconnect
-      if (reconnect()) {
-        lastReconnectAttempt = 0;
-      }
-    }
-  } else {
-    // Client connected
-    
-    // Incoming Event handler
-    if (Rx.Raised) {
       
-      if (Properties.Debug){
-        Serial.println("----------------------------------------"); 
-        Serial.print("Payload: ");
-        Serial.println(Rx.Payload);
-        Serial.print("Timestamp: ");
-        Serial.println(Rx.ReceivedAt);        
-      }
+  }else{
+      Serial.println(F("fail."));
+  }
 
-      // Parse Object 
-      if (Rx.Payload[0] == 'L') {
+  // Determine ApplicationMode
+  if (strlen(Properties.Host) == 0) {
 
-        // test to known events
-        if (strchr(Light.Events,Rx.Payload[1]) != NULL) {
-          Light.Event[1] = Rx.Payload[1];
-          Light.From = millis();
-          Light.To = Light.From + 5000;
-          Light.Colour = pixels.Color(0, 255, 0);
-          Light.Brightness = 10;
-          if (Properties.Debug){Serial.println("Lightbulb Event triggered");}
-        }        
-      }
-      Rx.Raised = false;
+      String DeviceName = "tims_";
+      DeviceName += String(ESP.getChipId());
+    
+      strcpy(Properties.Host, DeviceName.c_str()); 
+      printf("New Device Name : %s\n", Properties.Host);
+
+      if (!saveConfig()) {
+        Serial.println("Failed to save config");
+      } else {
+        Serial.println("config file was saved successfully");
+      } 
+      
+  }
+
+  // Init Soft Access Point for Device configuration
+  WiFi.softAP(apssid, appassword);
+  WiFi.hostname(Properties.Host);
+ 
+  Serial.println();
+  Serial.print("Server IP address: ");
+  Serial.println(WiFi.softAPIP());
+  Serial.print("Server MAC address: ");
+  Serial.println(WiFi.softAPmacAddress());
+
+  // Init Wlan 
+  if (Properties.ApplicationMode > 1) { 
+
+    // Connect to wifi network  
+    if (!connectToWiFi()) {
+      Properties.ApplicationMode = 1;
+
+      // Save Config 
+      if (!saveConfig()) {
+        Serial.println("Failed to save config");
+      } else {
+        Serial.println("config file was saved successfully");
+      } 
+      
     }
-
-    // Lightbulb Device Events
-    if (Light.Event[1] != 'X') {
-
-      if (Light.Event[1] == 'O') {
-        // Lights on
-        unsigned long checktime = millis();
-        if ((Light.From <= checktime) && (Light.To >= checktime)) {
-          //Do Event                   
-          pixels.setBrightness(Light.Brightness);
-          pixels.fill(Light.Colour, 0, NUMPIXELS);
-          pixels.show();   // Send the updated pixel colors to the hardware.          
-        
-        } else {
-          // End of Event
-          Light.Event[1] = 'X';
-          pixels.clear(); // Set all pixel colors to 'off'  
-          pixels.show();   // Send the updated pixel colors to the hardware. 
-        }
-      } else if (Light.Event[1] == 'F') {
-          // Lights Off
-          Light.Event[1] = 'X';          
-          pixels.clear(); // Set all pixel colors to 'off'  
-          pixels.show();   // Send the updated pixel colors to the hardware. 
-          
-      } else { 
-        // Event unknown
-        
-        Light.Event[1] = 'X';
-      }
-    }
-  
-    // Outgoing Event handler
-
-    //next message
-    client.loop();    
     
   }
+  
+  // Init Webserver
+  server.serveStatic("/Roboto.css", LittleFS, "/Roboto.css");
+  server.serveStatic("/tims.css", LittleFS, "/tims.css");
+  
+  server.on("/", handleRoot);
+  server.on("/submit",HTTP_POST, handleSubmit);
+  server.onNotFound(handleNotFound);
+  
+  server.begin();
+  Serial.println("Server listening");
+  
+  
 }
+ 
+void loop() {
+
+  //
+  if (changeApplicationMode) {
+
+    if (Properties.ApplicationMode == 2) {
+      
+      // Connect to wifi network  
+      if (!connectToWiFi()) {
+        Properties.ApplicationMode = 1;
+
+        // Save Config 
+        if (!saveConfig()) {
+          Serial.println("Failed to save config");
+        } else {
+          Serial.println("config file was saved successfully");
+        } 
+      }
+
+      changeApplicationMode = false;
+    }
+    
+  }
+  
+}
+ 
